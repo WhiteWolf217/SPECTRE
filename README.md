@@ -1,6 +1,6 @@
-# SPECTRE — Red Team Automation Platform
+# Spectre
 
-A comprehensive penetration testing automation platform designed for red teamers to streamline reconnaissance, vulnerability assessment, and exploitation workflows.
+A comprehensive red team automation platform designed to streamline reconnaissance, vulnerability assessment, and exploitation workflows.
 
 ## Features
 
