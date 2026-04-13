@@ -1,4 +1,4 @@
-# Spectre
+# SPECTRE
 
 A comprehensive red team automation platform designed to streamline reconnaissance, vulnerability assessment, and exploitation workflows.
 
