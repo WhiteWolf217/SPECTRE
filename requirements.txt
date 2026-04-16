@@ -1,0 +1,9 @@
+# Phase 1
+typer[all]
+rich
+jinja2
+requests
+
+# Phase 2
+textual>=0.47.0
+sliver-py

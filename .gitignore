@@ -1,0 +1,113 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+~/.spectre/
+spectre.db
+
+# SPECTRE-specific
+*.db-journal
+cache/
+.spectre_cache/
+agent_logs/
+nmap_output/
+findings_raw/
+
+# Configuration
+.env
+.env.local
+config.local.py
+credentials.json
+api_keys.txt
+
+# Logs
+*.log
+logs/
+debug.log
+agent*.log
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_results/
+.tox/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+temp/
+
+# Payloads & Exploits (security)
+*.bin
+*.raw
+*.shellcode
+payloads/
+exploits_generated/
+
+# Reports
+reports/
+*.html
+*.pdf
+
+# Node (if applicable)
+node_modules/
+npm-debug.log
+
+# Misc
+*.swp
+*.swo
+*.swn
+.netrwhist
+*~
+.idea/
+.vscode/
+
