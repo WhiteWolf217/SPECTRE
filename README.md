@@ -78,8 +78,6 @@ SPECTRE v2.0
 
 ### Prerequisites (Detailed Setup)
 
-### Prerequisites (Detailed Setup)
-
 #### OS-Specific Installation
 
 **Linux (Ubuntu/Debian/Kali):**
