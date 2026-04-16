@@ -65,7 +65,6 @@ class AgentCore:
                                   Kerbrute, Certipy, LdapDomainDump)
         from tools.bruteforce.bruteforce import Hydra, Hashcat, John
         from tools.exploit.cve import CVESearch, CVEAutoScan
-        from tools.evasion.evasion import EvasionTool
 
         return {
             "nmap": Nmap(), "subfinder": Subfinder(), "amass": Amass(),
@@ -77,7 +76,6 @@ class AgentCore:
             "certipy": Certipy(), "ldapdomaindump": LdapDomainDump(),
             "hydra": Hydra(), "hashcat": Hashcat(), "john": John(),
             "cve-search": CVESearch(), "cve-autoscan": CVEAutoScan(),
-            "evasion": EvasionTool(),
         }
 
     def run(
@@ -306,7 +304,7 @@ class AgentCore:
         Get optimized nmap flags based on engagement type.
         
         Args:
-            engagement_type: external | internal | web | ad | edr
+            engagement_type: external | internal | web | ad
             
         Returns:
             Nmap flags string
@@ -330,9 +328,7 @@ class AgentCore:
         elif engagement_type == "ad":
             # AD: Focus on Windows services, no need for -A
             return "-sV -sC -p 135,139,445,3389,5985,5986,88,389,636,3306,1433 -T4"
-        elif engagement_type == "edr":
-            # EDR/SIEM Evasion: against Wazuh, Splunk, etc.
-            return "-sV -sC -O -p- -T3"
+
         else:
             # Default: Standard comprehensive scan
             return "-A -T4"

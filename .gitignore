@@ -86,13 +86,6 @@ test_results/
 .tmp/
 temp/
 
-# Payloads & Exploits (security)
-*.bin
-*.raw
-*.shellcode
-payloads/
-exploits_generated/
-
 # Reports
 reports/
 *.html

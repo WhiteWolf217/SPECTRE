@@ -26,7 +26,6 @@ from tools.web.web import Nuclei, Ffuf, Sqlmap, Nikto, Dalfox, Feroxbuster
 from tools.ad.ad import CrackMapExec, BloodHound, Impacket, Kerbrute, Certipy, LdapDomainDump
 from tools.bruteforce.bruteforce import Hydra, Hashcat, John
 from tools.exploit.cve import CVESearch, CVEAutoScan
-from tools.evasion.evasion import EvasionTool
 
 app = typer.Typer(
     name="spectre",

@@ -31,8 +31,7 @@ SPECTRE v2.0
 │   ├── Web (Nuclei)
 │   ├── Bruteforce (Hydra)
 │   ├── Exploit (CVE)
-│   ├── AD (CrackMapExec)
-│   └── EDR/SIEM Evasion (Detection evasion techniques)
+│   └── AD (CrackMapExec)
 ├── Database (SQLite)
 │   └── Engagements, Findings, Tool Runs
 └── C2 (Sliver integration)
@@ -63,10 +62,7 @@ SPECTRE v2.0
 | Reconnaissance | ✅ Full | ✅ Full | ✅ Full |
 | Web Tools | ✅ Full | ✅ Full | ✅ Full |
 | AD/Bruteforce | ✅ Full | ⚠️ Limited | ⚠️ Limited |
-| EDR Evasion | ✅ Advisory | ⚠️ Partial | ✅ Full* |
 | C2 Integration | ✅ Full | ✅ Full | ✅ Full |
-
-*Windows EDR evasion requires WSL2 or native Windows execution
 
 ### Prerequisites
 
@@ -211,7 +207,6 @@ Each engagement has a specific type that guides reconnaissance and planning:
 - **Internal**: Internal network assessment (-A -p- -T3)
 - **Web**: Web application testing (specific web ports with -sV -sC)
 - **AD**: Active Directory assessment (Windows ports with -sV -sC)
-- **EDR/SIEM Evasion**: Detection evasion testing (Wazuh, Splunk, Sentinel)
 
 ## Configuration
 
@@ -327,86 +322,6 @@ The agent follows the Reasoning + Acting pattern:
 - Nmap flags optimized per engagement context
 - Plans adapted based on actual reconnaissance findings
 - Timeout: 300 seconds for LLM processing (accommodates large nmap scans)
-
-## EDR/SIEM Detection Evasion
-
-The **EDR/SIEM Evasion engagement type** provides a knowledge base and planning recommendations for testing detection capabilities against:
-- **Wazuh**
-- **Splunk**
-- **Microsoft Sentinel**
-- Other EDR/SIEM solutions
-
-**Note:** This module generates evasion technique recommendations and knowledge rather than automated execution. Techniques should be executed manually or via your C2 framework (Sliver integration recommended).
-
-### Evasion Techniques (Advisory)
-
-**Available evasion tools and methods:**
-
-1. **Code Obfuscation**
-   - Shikata Ga Nai (polymorphic XOR encoding)
-   - Dead code insertion and control flow flattening
-   - Function call indirection
-   - Bypasses: Signature-based detection
-
-2. **Dynamic API Resolution**
-   - GetProcAddress for runtime function resolution
-   - Hashing to obfuscate API names
-   - Bypasses: Static import table scanning, IAT hooking detection
-
-3. **Process Injection**
-   - Parent process spoofing
-   - Process hollowing
-   - DLL injection
-   - Tools: Mimikatz, Empire
-   - Bypasses: Direct process detection
-
-4. **Callback-Based Execution**
-   - SetWindowsHookEx (keyboard/mouse hooks)
-   - SetTimer callbacks
-   - WMI event consumers
-   - Bypasses: Direct execution detection
-
-5. **Memory Obfuscation**
-   - VirtualAllocExNuma for non-standard allocations
-   - Memory page encryption
-   - Non-contiguous region allocation
-   - Bypasses: Memory signature detection
-
-6. **Behavioral API Sequences**
-   - Credential theft patterns (lsass.exe targeting)
-   - Code injection sequences
-   - Token impersonation chains
-   - Registry tampering
-   - Tests: Behavioral detection accuracy
-
-### Workflow for EDR/SIEM Evasion
-
-```
-spectre> new
-[Enter EDR/SIEM Evasion as engagement type]
-
-spectre> use 1
-
-spectre> run
-[Phase 1: Host enumeration - scans for EDR/SIEM agents]
-[Phase 2: Analyzes detected security tools]
-[Phase 3: Recommends applicable evasion techniques]
-[Phase 4: Agent suggests techniques; execute manually or via C2]
-
-# After receiving agent recommendations:
-1. Review suggested evasion techniques in findings
-2. Execute techniques via Sliver C2 or manual testing
-3. Monitor EDR/SIEM alerts and log gaps
-4. Document detection effectiveness
-```
-
-### Integration with C2
-
-For hands-on evasion testing:
-1. Use SPECTRE findings to identify target EDR/SIEM solutions
-2. Execute recommended techniques via Sliver C2 integration
-3. Gather real-time alert data
-4. Refine detection gaps for security improvement
 
 ## Requirements
 

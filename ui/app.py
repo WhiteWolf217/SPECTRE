@@ -130,7 +130,6 @@ class NewEngagementScreen(Screen):
                 yield RadioButton("Internal - Corporate network, LAN", value="internal", id="type-internal")
                 yield RadioButton("Web - Web application testing", value="web", id="type-web")
                 yield RadioButton("AD - Active Directory testing", value="ad", id="type-ad")
-                yield RadioButton("EDR/SIEM Evasion - Detection evasion testing", value="edr-siem", id="type-edr-siem")
             with Horizontal(id="buttons"):
                 yield Button("Create", id="btn-create")
                 yield Button("Cancel", id="btn-cancel")
