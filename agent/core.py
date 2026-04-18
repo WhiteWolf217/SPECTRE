@@ -39,6 +39,7 @@ class AgentCore:
         on_tool_call:  Optional[Callable] = None,
         on_finding:    Optional[Callable] = None,
         on_done:       Optional[Callable] = None,
+        request_input_fn: Optional[Callable] = None,
     ):
         self.store         = store
         self.engagement_id = engagement_id
@@ -52,6 +53,7 @@ class AgentCore:
         self.on_tool_call = on_tool_call or (lambda tc: print(f"TOOL: {tc}"))
         self.on_finding   = on_finding   or (lambda f: print(f"FINDING: {f}"))
         self.on_done      = on_done      or (lambda msg: print(f"DONE: {msg}"))
+        self.request_input_fn = request_input_fn
 
         # Import tools registry from CLI
         self._tools = self._load_tools()
@@ -104,6 +106,14 @@ class AgentCore:
         if not eng:
             raise ValueError(f"Engagement {self.engagement_id} not found")
 
+        if not self.llm.is_available():
+            raise RuntimeError(
+                f"Ollama is not running or model '{self.llm.model}' is not pulled.\n"
+                f"Fix with:\n"
+                f"  ollama serve\n"
+                f"  ollama pull {self.llm.model}"
+            )
+
         target          = eng["target"]
         engagement_type = eng["type"]
 
@@ -118,8 +128,8 @@ class AgentCore:
         self.on_thought("Phase 1: Running initial reconnaissance...")
         memory.add_note("Starting reconnaissance phase")
         
-        # Run nmap automatically on IP targets
-        if self._is_ip(target):
+        # Run nmap on IP targets OR if the engagement target looks like a hostname/domain
+        if self._is_ip(target) or self._is_hostname(target):
             self.on_thought("Detected IP address. Running nmap port scan...")
             nmap_tool = self._tools.get("nmap")
             if nmap_tool:
@@ -164,6 +174,9 @@ class AgentCore:
         self.on_thought("Examples: 'run hydra on ssh', 'scan for web vulns', 'test all services'")
         self.on_thought("="*60)
 
+        # Capture operator instruction
+        operator_instruction = self.request_input_fn() if self.request_input_fn else "test all services"
+
         # Build initial context message for ReAct loop
         context = build_context_prompt(
             goal=goal,
@@ -171,6 +184,7 @@ class AgentCore:
             engagement_type=engagement_type,
             memory_summary=context_summary,
             available_tools=list(self._tools.keys()),
+            operator_instruction=operator_instruction,
         )
         memory.add_user_message(context)
 
@@ -285,10 +299,14 @@ class AgentCore:
 
             # ── UNKNOWN ───────────────────────────────────────────────────────
             else:
-                # LLM produced something unexpected — nudge it
                 memory.add_user_message(
-                    "Output was not in the expected format. "
-                    "Use THOUGHT:, <tool_call>, <finding>, or DONE: format."
+                    "Your response was not in the correct format and was ignored.\n"
+                    "You MUST output exactly ONE of:\n"
+                    "  THOUGHT: <reasoning>\n"
+                    "  <tool_call>{\"tool\": \"...\", \"args\": {\"target\": \"...\", \"flags\": \"...\"}, \"ttp\": \"...\", \"reason\": \"...\"}</tool_call>\n"
+                    "  <finding>{...}</finding>\n"
+                    "  DONE: <summary>\n"
+                    "Do NOT mix formats. Do NOT use markdown. Output ONE format now."
                 )
 
         return memory
@@ -298,6 +316,12 @@ class AgentCore:
         import re
         ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
         return bool(re.match(ip_pattern, target))
+
+    def _is_hostname(self, target: str) -> bool:
+        """Check if target is a hostname or domain (not an IP, but still scannable)."""
+        import re
+        # Matches anything with letters — domains, hostnames, etc.
+        return bool(re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\.\-]+$', target))
     
     def _get_nmap_flags(self, engagement_type: str) -> str:
         """
@@ -345,31 +369,70 @@ class AgentCore:
         """
         response = response.strip()
 
-        # Check for DONE
-        if response.upper().startswith("DONE:"):
+        # Check for DONE — only if it's the entire response (not mixed with tool_call)
+        if response.upper().startswith("DONE:") and "<tool_call>" not in response and "<finding>" not in response:
             return {"type": "done", "content": response[5:].strip()}
 
         # Check for THOUGHT
         if response.upper().startswith("THOUGHT:"):
             return {"type": "thought", "content": response[8:].strip()}
 
-        # Check for tool_call JSON block
-        tc_match = re.search(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", response, re.DOTALL)
+        # Check for tool_call JSON block — closing tag optional (stop-token safety)
+        tc_match = re.search(r"<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)", response, re.DOTALL)
         if tc_match:
             try:
                 tc = json.loads(tc_match.group(1))
                 return {"type": "tool_call", "content": tc}
             except json.JSONDecodeError:
-                pass
+                # Content inside tags is not JSON — LLM wrote shell command instead
+                # Try to salvage: extract tool name and args from shell command
+                raw = tc_match.group(1).strip()
+                salvaged = self._salvage_tool_call(raw)
+                if salvaged:
+                    return {"type": "tool_call", "content": salvaged}
+
+        # Fallback for shell command inside tool_call tags (no JSON braces)
+        tc_cmd_match = re.search(r"<tool_call>\s*([^<]+?)\s*(?:</tool_call>|$)", response, re.DOTALL)
+        if tc_cmd_match:
+            raw = tc_cmd_match.group(1).strip()
+            salvaged = self._salvage_tool_call(raw)
+            if salvaged:
+                return {"type": "tool_call", "content": salvaged}
 
         # Check for finding JSON block
-        f_match = re.search(r"<finding>\s*(\{.*?\})\s*</finding>", response, re.DOTALL)
+        f_match = re.search(r"<finding>\s*(\{.*?\})\s*(?:</finding>|$)", response, re.DOTALL)
         if f_match:
             try:
                 f = json.loads(f_match.group(1))
                 return {"type": "finding", "content": f}
             except json.JSONDecodeError:
-                pass
+                # Not JSON — LLM wrote prose inside finding tags
+                # Salvage as info-level finding with the raw text
+                raw = f_match.group(1).strip()
+                return {"type": "finding", "content": {
+                    "title":       raw[:80],
+                    "severity":    "info",
+                    "description": raw,
+                    "ttp":         "",
+                    "host":        "",
+                    "port":        None,
+                    "evidence":    "",
+                }}
+
+        # Fallback for prose inside finding tags (no JSON braces)
+        f_text_match = re.search(r"<finding>\s*([^<]+?)\s*(?:</finding>|$)", response, re.DOTALL)
+        if f_text_match:
+            raw = f_text_match.group(1).strip()
+            if raw:
+                return {"type": "finding", "content": {
+                    "title":       raw[:80],
+                    "severity":    "info",
+                    "description": raw,
+                    "ttp":         "",
+                    "host":        "",
+                    "port":        None,
+                    "evidence":    "",
+                }}
 
         # Try bare JSON (LLM sometimes skips tags)
         try:
@@ -386,3 +449,30 @@ class AgentCore:
             return {"type": "thought", "content": response}
 
         return {"type": "unknown", "content": response}
+
+    def _salvage_tool_call(self, raw: str) -> Optional[dict]:
+        """
+        LLM wrote a shell command inside <tool_call> instead of JSON.
+        e.g. "hydra -l root -P /usr/share/wordlists/rockyou.txt 172.22.24.1 ssh"
+        Try to match it to a known tool and reconstruct a valid tool_call dict.
+        """
+        raw = raw.strip()
+        for tool_name in self._tools.keys():
+            if raw.startswith(tool_name):
+                # Everything after the tool name is flags + target
+                rest = raw[len(tool_name):].strip()
+                # Last token is usually the target if it looks like an IP/domain
+                parts = rest.rsplit(" ", 1)
+                if len(parts) == 2 and re.match(r'^[\d\.a-zA-Z\-]+$', parts[1]):
+                    flags  = parts[0].strip()
+                    target = parts[1].strip()
+                else:
+                    flags  = rest
+                    target = ""
+                return {
+                    "tool":   tool_name,
+                    "args":   {"target": target, "flags": flags},
+                    "ttp":    "",
+                    "reason": "salvaged from shell command format",
+                }
+        return None

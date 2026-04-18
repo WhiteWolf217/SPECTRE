@@ -590,5 +590,85 @@ def status(
     ))
 
 
+# ── agent ──────────────────────────────────────────────────────────────────────
+@app.command("agent")
+def run_agent(
+    goal: str           = typer.Option(...,  "--goal", "-g", help="What to achieve e.g. 'find all critical vulns'"),
+    eid:  Optional[int] = typer.Option(None, "--engagement", "-e", help="Engagement ID (default: active)"),
+):
+    """Run the AI agent against an engagement (requires Ollama)."""
+    from agent.core import AgentCore
+
+    engagement_id = resolve_eid(eid)
+    if not engagement_id:
+        console.print("[red]No active engagement. Run: spectre new --target <ip>[/red]")
+        raise typer.Exit(1)
+
+    eng = store.get_engagement(engagement_id)
+    if not eng:
+        console.print(f"[red]Engagement {engagement_id} not found.[/red]")
+        raise typer.Exit(1)
+
+    console.print(Panel(
+        f"[bold]Goal:[/bold]   {goal}\n"
+        f"[bold]Target:[/bold] {eng['target']}\n"
+        f"[bold]Type:[/bold]   {eng['type']}\n\n"
+        f"[dim]Agent will ask for confirmation before every tool execution.\n"
+        f"Type [bold]n[/bold] to skip a tool, [bold]stop[/bold] to abort.[/dim]",
+        title="[bold red]SPECTRE[/bold red] — Agent Mode",
+        border_style="red"
+    ))
+
+    def on_thought(msg: str):
+        console.print(f"[dim cyan][THOUGHT][/dim cyan] {msg}")
+
+    def on_tool_call(tc: dict):
+        console.print(Panel(
+            f"[bold]Tool:[/bold]   {tc.get('tool')}\n"
+            f"[bold]Args:[/bold]   {tc.get('args')}\n"
+            f"[bold]TTP:[/bold]    {tc.get('ttp')}\n"
+            f"[bold]Reason:[/bold] {tc.get('reason')}",
+            title="[yellow]⚡ Tool Call Proposed[/yellow]",
+            border_style="yellow"
+        ))
+
+    def on_finding(f: dict):
+        sev   = f.get("severity", "info")
+        color = SEVERITY_COLORS.get(sev, "white")
+        console.print(Panel(
+            f"[bold]Title:[/bold]    {f.get('title')}\n"
+            f"[bold]Severity:[/bold] [{color}]{sev.upper()}[/{color}]\n"
+            f"[bold]TTP:[/bold]      {f.get('ttp')}\n"
+            f"[bold]Evidence:[/bold] {f.get('evidence', '')[:200]}",
+            title="[red]🚨 Finding[/red]",
+            border_style="red"
+        ))
+
+    def on_done(msg: str):
+        console.print(Panel(f"[green]{msg}[/green]", title="[bold green]✅ Agent Complete[/bold green]", border_style="green"))
+
+    def confirm_fn(tool_name: str, args: dict) -> bool:
+        answer = typer.prompt(f"  Run [bold]{tool_name}[/bold]? [y/n/stop]", default="y")
+        if answer.lower() == "stop":
+            console.print("[yellow]Agent stopped by operator.[/yellow]")
+            raise typer.Exit(0)
+        return answer.lower() == "y"
+
+    try:
+        agent = AgentCore(
+            store=store,
+            engagement_id=engagement_id,
+            on_thought=on_thought,
+            on_tool_call=on_tool_call,
+            on_finding=on_finding,
+            on_done=on_done,
+            request_input_fn=lambda: typer.prompt("  What should the agent do"),
+        )
+        agent.run(goal=goal, confirm_fn=confirm_fn)
+    except RuntimeError as e:
+        console.print(f"[red][-] {e}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
