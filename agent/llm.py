@@ -39,7 +39,7 @@ class OllamaClient:
             "options": {
                 "temperature": temperature,
                 "num_predict": 2048,   # max tokens per response
-                "stop": ["</tool_call>", "Human:", "User:"],
+                "stop": ["Human:", "User:"],
             }
         }
 

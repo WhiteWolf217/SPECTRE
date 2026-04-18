@@ -1,4 +1,5 @@
 import asyncio
+import re
 import threading
 from datetime import datetime
 from typing import Optional
@@ -247,6 +248,7 @@ class SpectreUI(App):
         border: solid #2a0000;
         background: #0a0a0a;
         padding: 0 1;
+        scrollbar-size: 1 1;
     }
 
     #input-area {
@@ -338,7 +340,7 @@ class SpectreUI(App):
             # Main agent panel
             with Vertical(id="main-panel"):
                 yield Static(id="status-bar")
-                yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
+                yield RichLog(id="chat-log", highlight=False, markup=True, wrap=True, auto_scroll=True, max_lines=500)
                 with Horizontal(id="input-area"):
                     yield Input(
                         placeholder="Enter goal or command... (e.g. 'enumerate 10.10.10.5')",
@@ -402,6 +404,16 @@ class SpectreUI(App):
 
         # Clear input
         self.query_one("#agent-input", Input).value = ""
+
+        # ── Confirmation gate (tool execution yes/no) ──────────────────────
+        if hasattr(self, "_pending_confirm") and self._pending_confirm:
+            self._pending_confirm(text)
+            return
+
+        # ── Operator instruction gate (what should agent do) ───────────────
+        if hasattr(self, "_pending_instruction") and self._pending_instruction:
+            self._pending_instruction(text)
+            return
 
         # Check if pending delete confirmation
         if hasattr(self, "_pending_delete") and self._pending_delete:
@@ -520,7 +532,10 @@ class SpectreUI(App):
             agent = AgentCore(
                 store=self.store,
                 engagement_id=self.active_eid,
-                on_thought   = lambda msg: self._log(f"[dim]THOUGHT:[/dim] {msg}"),
+                on_thought   = lambda msg: self._log(
+                    f"[dim]THOUGHT:[/dim] "
+                    + re.sub(r"</?(?:tool_call|finding)>", "", msg).strip()
+                ),
                 on_tool_call = lambda tc:  self._log(
                     f"\n[bold yellow][?] Tool call:[/bold yellow]\n"
                     f"  Tool:   [cyan]{tc.get('tool')}[/cyan]\n"
@@ -529,8 +544,9 @@ class SpectreUI(App):
                     f"  TTP:    [magenta]{tc.get('ttp', '')}[/magenta]\n"
                     f"  Why:    {tc.get('reason', '')}"
                 ),
-                on_finding = lambda f: self._on_finding(f),
-                on_done    = lambda msg: self._log(f"\n[bold green][+] DONE:[/bold green] {msg}"),
+                on_finding        = lambda f: self._on_finding(f),
+                on_done           = lambda msg: self._log(f"\n[bold green][+] DONE:[/bold green] {msg}"),
+                request_input_fn  = self._request_operator_instruction,
             )
 
             memory = agent.run(
@@ -584,6 +600,32 @@ class SpectreUI(App):
             self._log(f"[yellow][-] Skipped {tool_name}[/yellow]")
 
         return result["confirmed"]
+
+    def _request_operator_instruction(self) -> str:
+        """
+        Block the agent thread and wait for the operator to type
+        what they want the agent to do next.
+        Uses threading.Event to pause until input is submitted.
+        """
+        result = {"value": "test all services"}
+        event  = threading.Event()
+
+        self._log(
+            "\n[bold cyan]┌─ What should the agent do? ──────────────────────────┐[/bold cyan]\n"
+            "[bold cyan]│[/bold cyan] Examples: 'run hydra on ssh', 'scan for web vulns'   [bold cyan]│[/bold cyan]\n"
+            "[bold cyan]└──────────────────────────────────────────────────────┘[/bold cyan]"
+        )
+
+        def handle_instruction(text: str):
+            result["value"] = text.strip() or "test all services"
+            event.set()
+
+        self._pending_instruction = handle_instruction
+        event.wait(timeout=120)  # 2 min timeout — defaults to "test all services"
+        self._pending_instruction = None
+
+        self._log(f"[bold cyan]>[/bold cyan] {result['value']}")
+        return result["value"]
 
     def on_input_submitted_confirm(self, text: str) -> None:
         """Route confirm responses if a confirmation is pending."""
