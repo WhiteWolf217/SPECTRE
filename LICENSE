@@ -1,0 +1,19 @@
+SPECTRE — Red Team Automation Platform
+Copyright (c) 2025 WhiteWolf217
+
+This tool is provided for authorized security testing and educational purposes only.
+
+Permission is granted to use, copy, and modify this software for personal and 
+professional penetration testing engagements where explicit written authorization 
+has been obtained from the target system owner.
+
+CONDITIONS:
+- You must have explicit written permission to test any target system
+- Credit must be given to the original author on redistribution
+- This tool may not be used for illegal, unauthorized, or malicious purposes
+- The author is not responsible for any misuse, damage, or legal consequences 
+  arising from the use of this tool
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT SHALL 
+THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE 
+USE OF THIS SOFTWARE.
