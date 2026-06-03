@@ -547,6 +547,7 @@ class SpectreUI(App):
                 on_finding        = lambda f: self._on_finding(f),
                 on_done           = lambda msg: self._log(f"\n[bold green][+] DONE:[/bold green] {msg}"),
                 request_input_fn  = self._request_operator_instruction,
+                stop_check        = lambda: not self.agent_running,
             )
 
             memory = agent.run(
@@ -607,7 +608,7 @@ class SpectreUI(App):
         what they want the agent to do next.
         Uses threading.Event to pause until input is submitted.
         """
-        result = {"value": "test all services"}
+        result = {"value": ""}
         event  = threading.Event()
 
         self._log(
@@ -617,7 +618,7 @@ class SpectreUI(App):
         )
 
         def handle_instruction(text: str):
-            result["value"] = text.strip() or "test all services"
+            result["value"] = text.strip()
             event.set()
 
         self._pending_instruction = handle_instruction

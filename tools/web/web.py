@@ -60,7 +60,7 @@ class Dalfox(BaseTool):
     requires_confirmation = False
 
     def _run(self, target: str, flags: str = "") -> dict:
-        cmd = ["dalfox", "url", target] + (flags.split() if flags else [])
+        cmd = ["dalfox", "scan", target] + (flags.split() if flags else [])
         result = self._exec(cmd, timeout=300)
         if result["success"]:
             result["parsed"] = Parser.generic(result["stdout"])

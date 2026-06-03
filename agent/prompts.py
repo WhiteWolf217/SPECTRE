@@ -54,14 +54,28 @@ nuclei, ffuf, sqlmap, nikto, dalfox, feroxbuster,
 crackmapexec, bloodhound, impacket, kerbrute, certipy, ldapdomaindump,
 hydra, hashcat, john, cve-search, cve-autoscan
 
-TOOL NAME → FLAGS EXAMPLES:
-hydra      → flags: "-l root -P /usr/share/wordlists/rockyou.txt -t 4 ssh"
-nmap       → flags: "-sV -sC -p 22,80,443"
-sqlmap     → flags: "-u http://target/page?id=1 --batch"
-nikto      → flags: "-h http://target"
-ffuf       → flags: "-u http://target/FUZZ -w /usr/share/wordlists/dirb/common.txt"
-feroxbuster→ flags: "-u http://target -w /usr/share/wordlists/dirb/common.txt"
-nuclei     → flags: "-u http://target"
+IMPORTANT — HOW TOOL CALLS WORK:
+The "target" arg is passed as a separate argument. Each tool wrapper automatically
+places it in the correct position. Do NOT repeat the target inside "flags".
+
+TOOL NAME → CORRECT FLAG EXAMPLES:
+nmap        → target: "<ip>"        flags: "-sV -sC -p 22,80,443"
+hydra       → target: "<ip>"        flags: "-l root -P /usr/share/wordlists/rockyou.txt -t 4 ssh://<target>:22"
+nuclei      → target: "<url>"       flags: "-severity critical,high,medium"
+                                     (wrapper adds -u <target> automatically)
+ffuf        → target: "<url>/FUZZ"  flags: "-w /usr/share/wordlists/dirb/common.txt -mc 200,301,302"
+                                     (wrapper adds -u <target> -w <wordlist> automatically)
+sqlmap      → target: "<url>?id=1"  flags: "--forms --dbs --batch"
+                                     (wrapper adds -u <target> automatically)
+nikto       → target: "<url>"       flags: "-Tuning 1 2 3"
+                                     (wrapper adds -h <target> automatically)
+dalfox      → target: "<url>"       flags: ""
+                                     (wrapper adds scan <target> automatically)
+feroxbuster → target: "<url>"       flags: "-w /usr/share/wordlists/dirb/common.txt -x php,html"
+                                     (wrapper adds -u <target> automatically)
+whatweb     → target: "<url>"       flags: "-a 3"
+crackmapexec → target: "<ip>"       flags: ""
+                                     (wrapper needs proto as first arg: smb, ldap, winrm, mssql)
 """
 
 # ── Planner prompt ─────────────────────────────────────────────────────────────
@@ -101,7 +115,7 @@ def build_context_prompt(
     engagement_type: str,
     memory_summary: str,
     available_tools: list,
-  operator_instruction: str = "",
+    operator_instruction: str = "",
 ) -> str:
     """Build the initial context message sent to the agent."""
     return f"""ENGAGEMENT CONTEXT:
@@ -116,7 +130,7 @@ AVAILABLE TOOLS:
 {', '.join(available_tools)}
 
 OPERATOR INSTRUCTION:
-{operator_instruction if operator_instruction else "Test all services."}
+{operator_instruction if operator_instruction else "Awaiting operator instruction. Output THOUGHT with your recommended next step."}
 
 Respond ONLY in the formats specified. No markdown. No prose.
 Output <tool_call>{{...}}</tool_call> to run a tool.

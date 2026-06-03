@@ -10,7 +10,7 @@ PORT_CHAINS = {
         "ttps": ["T1190", "T1078"],
         "chain": [
             {"tool": "nmap",         "desc": "FTP version + anon check",         "flags": "--script ftp-anon,ftp-syst,ftp-vsftpd-backdoor -p 21", "destructive": False},
-            {"tool": "hydra",        "desc": "FTP credential brute force",        "flags": "-L users.txt -P passwords.txt ftp://{target}",          "destructive": True},
+            {"tool": "hydra",        "desc": "FTP credential brute force",        "flags": "-L users.txt -P passwords.txt ftp://{target}:21",       "destructive": True},
         ]
     },
     22: {
@@ -18,7 +18,7 @@ PORT_CHAINS = {
         "ttps": ["T1190", "T1078"],
         "chain": [
             {"tool": "nmap",         "desc": "SSH version + auth methods",        "flags": "--script ssh-auth-methods,ssh-hostkey -p 22",            "destructive": False},
-            {"tool": "hydra",        "desc": "SSH credential brute force",        "flags": "-L users.txt -P passwords.txt ssh://{target}",           "destructive": True},
+            {"tool": "hydra",        "desc": "SSH credential brute force",        "flags": "-L users.txt -P passwords.txt ssh://{target}:22",        "destructive": True},
         ]
     },
     25: {
@@ -38,7 +38,7 @@ PORT_CHAINS = {
             {"tool": "ffuf",         "desc": "Directory fuzzing",                 "flags": "-u http://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt", "destructive": False},
             {"tool": "nikto",        "desc": "Web server misconfig scan",         "flags": "-h http://{target}",                                     "destructive": False},
             {"tool": "sqlmap",       "desc": "SQL injection scan",                "flags": "-u http://{target} --forms --dbs --batch",               "destructive": True},
-            {"tool": "dalfox",       "desc": "XSS scanning",                      "flags": "url http://{target}",                                    "destructive": False},
+            {"tool": "dalfox",       "desc": "XSS scanning",                      "flags": "scan http://{target}",                                   "destructive": False},
         ]
     },
     443: {
@@ -50,7 +50,7 @@ PORT_CHAINS = {
             {"tool": "ffuf",         "desc": "Directory fuzzing",                 "flags": "-u https://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt", "destructive": False},
             {"tool": "nikto",        "desc": "Web server misconfig scan",         "flags": "-h https://{target}",                                    "destructive": False},
             {"tool": "sqlmap",       "desc": "SQL injection scan",                "flags": "-u https://{target} --forms --dbs --batch",              "destructive": True},
-            {"tool": "dalfox",       "desc": "XSS scanning",                      "flags": "url https://{target}",                                   "destructive": False},
+            {"tool": "dalfox",       "desc": "XSS scanning",                      "flags": "scan https://{target}",                                  "destructive": False},
         ]
     },
     389: {
@@ -88,7 +88,7 @@ PORT_CHAINS = {
         "ttps": ["T1190"],
         "chain": [
             {"tool": "nmap",   "desc": "MySQL info + empty password check",      "flags": "--script mysql-info,mysql-empty-password -p 3306",        "destructive": False},
-            {"tool": "hydra",  "desc": "MySQL credential brute",                 "flags": "-L users.txt -P passwords.txt mysql://{target}",          "destructive": True},
+            {"tool": "hydra",  "desc": "MySQL credential brute",                 "flags": "-L users.txt -P passwords.txt mysql://{target}:3306",     "destructive": True},
         ]
     },
     3389: {
@@ -96,8 +96,8 @@ PORT_CHAINS = {
         "ttps": ["T1021.001", "T1110"],
         "chain": [
             {"tool": "nmap",         "desc": "RDP vuln scan (BlueKeep etc)",     "flags": "--script rdp-vuln-ms12-020,rdp-enum-encryption -p 3389",  "destructive": False},
-            {"tool": "nuclei",       "desc": "BlueKeep CVE-2019-0708 check",     "flags": "-u rdp://{target}:3389 -t cves/",                        "destructive": False},
-            {"tool": "hydra",        "desc": "RDP credential spray",             "flags": "-L users.txt -P passwords.txt rdp://{target}",            "destructive": True},
+            {"tool": "nmap",         "desc": "BlueKeep CVE-2019-0708 check",     "flags": "--script rdp-vuln-ms12-020 -p 3389",                     "destructive": False},
+            {"tool": "hydra",        "desc": "RDP credential spray",             "flags": "-L users.txt -P passwords.txt rdp://{target}:3389",      "destructive": True},
         ]
     },
     5985: {

@@ -31,6 +31,41 @@ class AgentCore:
 
     MAX_ITERATIONS = 20
 
+    # Patterns that indicate a specific tool/service command
+    # e.g. "run hydra on ssh", "scan for web vulns", "use nmap on port 22"
+    _TOOL_PATTERNS = [
+        # "run <tool> on/for <service>"
+        re.compile(
+            r"(?:run|use|execute|launch|try)\s+"
+            r"(?P<tool>\w+)"
+            r"\s+(?:on|for|against)\s+"
+            r"(?P<service>.+)",
+            re.IGNORECASE,
+        ),
+        # "hydra ssh", "nmap port 22"
+        re.compile(
+            r"^(?P<tool>nmap|hydra|nikto|nuclei|ffuf|sqlmap|dalfox|feroxbuster|"
+            r"whatweb|crackmapexec|bloodhound|impacket|kerbrute|certipy|"
+            r"ldapdomaindump|hashcat|john|cve-search|cve-autoscan|subfinder|"
+            r"amass|theharvester|whois)"
+            r"\s+(?P<service>.+)",
+            re.IGNORECASE,
+        ),
+        # "scan <service>", "test <service>"
+        re.compile(
+            r"(?:scan|test|check|enumerate|brute\s*force)\s+"
+            r"(?:for\s+)?(?P<service>.+)",
+            re.IGNORECASE,
+        ),
+    ]
+
+    # Keywords that indicate a general/broad engagement goal
+    _GENERAL_KEYWORDS = [
+        "start the attack", "start attack", "begin",
+        "enumerate", "full scan", "test all",
+        "pwn", "hack", "pentest", "engage",
+    ]
+
     def __init__(
         self,
         store: Store,
@@ -40,6 +75,7 @@ class AgentCore:
         on_finding:    Optional[Callable] = None,
         on_done:       Optional[Callable] = None,
         request_input_fn: Optional[Callable] = None,
+        stop_check:    Optional[Callable] = None,
     ):
         self.store         = store
         self.engagement_id = engagement_id
@@ -54,6 +90,10 @@ class AgentCore:
         self.on_finding   = on_finding   or (lambda f: print(f"FINDING: {f}"))
         self.on_done      = on_done      or (lambda msg: print(f"DONE: {msg}"))
         self.request_input_fn = request_input_fn
+
+        # Stop signal — checked before each phase and each ReAct iteration.
+        # Returns True when the operator wants to stop.
+        self._stop_check = stop_check or (lambda: False)
 
         # Import tools registry from CLI
         self._tools = self._load_tools()
@@ -80,6 +120,84 @@ class AgentCore:
             "cve-search": CVESearch(), "cve-autoscan": CVEAutoScan(),
         }
 
+    # ── Intent Detection ──────────────────────────────────────────────────────
+
+    def _parse_goal_intent(self, goal: str) -> dict:
+        """
+        Parse the operator's goal to determine intent.
+
+        Returns:
+            {
+                "type": "specific_tool" | "general",
+                "tool": "<tool name>" | None,
+                "service": "<service/target detail>" | None,
+                "goal": original goal string,
+            }
+        """
+        goal_lower = goal.strip().lower()
+
+        # Check for general keywords first
+        for kw in self._GENERAL_KEYWORDS:
+            if kw in goal_lower:
+                return {"type": "general", "tool": None, "service": None, "goal": goal}
+
+        # Try to match specific tool/service patterns
+        for pattern in self._TOOL_PATTERNS:
+            m = pattern.search(goal)
+            if m:
+                groups = m.groupdict()
+                tool = groups.get("tool", "").lower() if groups.get("tool") else None
+                service = groups.get("service", "").strip() if groups.get("service") else None
+
+                # Validate tool name exists in our registry
+                if tool and tool not in self._tools:
+                    tool = None  # Unknown tool — treat service as the hint
+
+                return {
+                    "type": "specific_tool",
+                    "tool": tool,
+                    "service": service,
+                    "goal": goal,
+                }
+
+        # Fallback — treat as general
+        return {"type": "general", "tool": None, "service": None, "goal": goal}
+
+    # ── Recon Cache ───────────────────────────────────────────────────────────
+
+    def _get_cached_recon(self) -> Optional[dict]:
+        """
+        Check if we have previous nmap results for this engagement in the DB.
+        Returns parsed nmap data dict or None.
+        """
+        runs = self.store.list_tool_runs(self.engagement_id)
+        for run in reversed(runs):
+            if run.get("tool_name") == "nmap" and run.get("success"):
+                stdout = run.get("stdout", "")
+                if stdout:
+                    parsed = Parser.nmap(stdout)
+                    ports_info = []
+                    for host in parsed.get("hosts", []):
+                        for port in host.get("open_ports", []):
+                            port_num = port.get("port", "?")
+                            service = port.get("service", "unknown")
+                            ports_info.append((port_num, service))
+                    if ports_info:
+                        return {
+                            "ports_info": ports_info,
+                            "stdout": stdout,
+                            "parsed": parsed,
+                        }
+        return None
+
+    # ── Stopped check helper ──────────────────────────────────────────────────
+
+    def _is_stopped(self) -> bool:
+        """Check if the operator has requested a stop."""
+        return self._stop_check()
+
+    # ── Main Agent Loop ───────────────────────────────────────────────────────
+
     def run(
         self,
         goal: str,
@@ -88,11 +206,18 @@ class AgentCore:
         """
         Main agent loop with adaptive planning.
 
-        1. Run initial reconnaissance (nmap, etc.)
-        2. Analyze findings
-        3. Generate context-aware attack plan
-        4. Ask operator which attacks to perform
-        5. Execute selected attacks
+        The flow depends on the operator's intent:
+
+        GENERAL goals (e.g. "start the attack"):
+            1. Run initial reconnaissance (nmap) — with confirmation
+            2. Generate context-aware attack plan
+            3. Ask operator which attacks to perform
+            4. Execute selected attacks via ReAct loop
+
+        SPECIFIC goals (e.g. "run hydra on ssh"):
+            1. Load cached recon (skip nmap if we have results)
+            2. Skip planning — go straight to ReAct loop with the
+               specific instruction
 
         Args:
             goal:       What the operator wants to achieve
@@ -124,60 +249,71 @@ class AgentCore:
             engagement_type=engagement_type,
         )
 
-        # PHASE 1: Initial Reconnaissance
-        self.on_thought("Phase 1: Running initial reconnaissance...")
-        memory.add_note("Starting reconnaissance phase")
-        
-        # Run nmap on IP targets OR if the engagement target looks like a hostname/domain
-        if self._is_ip(target) or self._is_hostname(target):
-            self.on_thought("Detected IP address. Running nmap port scan...")
-            nmap_tool = self._tools.get("nmap")
-            if nmap_tool:
-                # Select flags based on engagement type
-                flags = self._get_nmap_flags(engagement_type)
-                self.on_thought(f"Using nmap flags: {flags}")
-                
-                # Run nmap without waiting for confirmation
-                result = self.executor.run(nmap_tool, target=target, flags=flags, save=True)
-                memory.add_tool_run("nmap", {"target": target, "flags": flags}, result)
-                
-                # Parse and extract open ports
-                if result.get("success"):
-                    parsed_nmap = Parser.nmap(result.get("stdout", ""))
-                    ports_info = []
-                    for host in parsed_nmap.get("hosts", []):
-                        for port in host.get("open_ports", []):
-                            port_num = port.get("port", "?")
-                            service = port.get("service", "unknown")
-                            ports_info.append((port_num, service))
-                            memory.add_open_ports([port_num])
-                    
-                    if ports_info:
-                        memory.add_note(f"Open ports found: {ports_info}")
-                        ports_summary = "\n".join([f"  - {p}: {s}" for p, s in ports_info])
-                        self.on_thought(f"Found open ports:\n{ports_summary}")
-                else:
-                    self.on_thought(f"Nmap scan failed or timed out. Error: {result.get('stderr', 'unknown')}")
+        # ── Determine intent ──────────────────────────────────────────────────
+        intent = self._parse_goal_intent(goal)
+        self.on_thought(f"Intent: {intent['type']}"
+                        + (f" → tool={intent['tool']}, service={intent['service']}" if intent['type'] == 'specific_tool' else ''))
 
-        # PHASE 2: Generate context-aware plan based on findings
-        self.on_thought("\nPhase 2: Generating attack plan based on findings...")
+        if intent["type"] == "specific_tool":
+            # ── SPECIFIC TOOL FLOW ────────────────────────────────────────────
+            # Try to load cached recon so the LLM has context
+            cached = self._get_cached_recon()
+            if cached:
+                self.on_thought("Using cached reconnaissance data (skipping nmap).")
+                for port_num, service in cached["ports_info"]:
+                    memory.add_open_ports([port_num])
+                memory.add_note(f"Open ports (from cache): {cached['ports_info']}")
+                ports_summary = "\n".join([f"  - {p}: {s}" for p, s in cached["ports_info"]])
+                self.on_thought(f"Known open ports:\n{ports_summary}")
+            else:
+                self.on_thought("No cached recon data. Running nmap first...")
+                self._run_recon_phase(target, engagement_type, memory, confirm_fn)
+
+            if self._is_stopped():
+                return memory
+
+            # Skip planning — use the goal directly as the operator instruction
+            operator_instruction = goal
+
+        else:
+            # ── GENERAL FLOW (full pipeline) ──────────────────────────────────
+            # PHASE 1: Initial Reconnaissance — with confirmation
+            self.on_thought("Phase 1: Running initial reconnaissance...")
+            memory.add_note("Starting reconnaissance phase")
+            self._run_recon_phase(target, engagement_type, memory, confirm_fn)
+
+            if self._is_stopped():
+                return memory
+
+            # PHASE 2: Generate context-aware plan based on findings
+            self.on_thought("\nPhase 2: Generating attack plan based on findings...")
+            context_summary = memory.summary()
+
+            plan = self.planner.plan(goal, target, engagement_type, context=context_summary)
+            plan_text = self.planner.format_plan(plan)
+            self.on_thought(f"\n{plan_text}")
+            memory.add_note(f"Context-aware attack plan generated: {len(plan.get('phases', []))} phases")
+
+            if self._is_stopped():
+                return memory
+
+            # PHASE 3: Ask operator which attacks to execute
+            self.on_thought("\n" + "="*60)
+            self.on_thought("Which attacks would you like to perform?")
+            self.on_thought("Examples: 'run hydra on ssh', 'scan for web vulns', 'test all services'")
+            self.on_thought("="*60)
+
+            # Capture operator instruction — block until they respond
+            operator_instruction = self.request_input_fn() if self.request_input_fn else None
+            if not operator_instruction:
+                self.on_thought("No instruction received. Stopping.")
+                return memory
+
+            if self._is_stopped():
+                return memory
+
+        # ── PHASE 4: ReAct loop for attack execution ──────────────────────────
         context_summary = memory.summary()
-        
-        plan = self.planner.plan(goal, target, engagement_type, context=context_summary)
-        plan_text = self.planner.format_plan(plan)
-        self.on_thought(f"\n{plan_text}")
-        memory.add_note(f"Context-aware attack plan generated: {len(plan.get('phases', []))} phases")
-
-        # PHASE 3: Ask operator which attacks to execute
-        self.on_thought("\n" + "="*60)
-        self.on_thought("Which attacks would you like to perform?")
-        self.on_thought("Examples: 'run hydra on ssh', 'scan for web vulns', 'test all services'")
-        self.on_thought("="*60)
-
-        # Capture operator instruction
-        operator_instruction = self.request_input_fn() if self.request_input_fn else "test all services"
-
-        # Build initial context message for ReAct loop
         context = build_context_prompt(
             goal=goal,
             target=target,
@@ -188,9 +324,13 @@ class AgentCore:
         )
         memory.add_user_message(context)
 
-        # PHASE 4: ReAct loop for attack execution
         iteration = 0
         while iteration < self.MAX_ITERATIONS:
+            # Check stop signal at the top of each iteration
+            if self._is_stopped():
+                self.on_thought("Agent stopped by operator.")
+                break
+
             iteration += 1
 
             # Get next action from LLM
@@ -202,7 +342,6 @@ class AgentCore:
                 )
             except RuntimeError as e:
                 self.on_thought(f"LLM error: {e}")
-                self.agent_running = False
                 break
 
             memory.add_assistant_message(response)
@@ -239,6 +378,11 @@ class AgentCore:
                         f"Operator skipped {tool_name}. Choose a different approach."
                     )
                     continue
+
+                # Check stop after confirmation (operator may have typed 'stop')
+                if self._is_stopped():
+                    self.on_thought("Agent stopped by operator.")
+                    break
 
                 # Execute tool
                 result = self.executor.run(tool, save=True, **args)
@@ -310,6 +454,64 @@ class AgentCore:
                 )
 
         return memory
+
+    # ── Recon Phase ───────────────────────────────────────────────────────────
+
+    def _run_recon_phase(
+        self,
+        target: str,
+        engagement_type: str,
+        memory: AgentMemory,
+        confirm_fn: Callable,
+    ) -> None:
+        """
+        Run nmap reconnaissance with operator confirmation.
+        Results are added to memory.
+        """
+        if not (self._is_ip(target) or self._is_hostname(target)):
+            return
+
+        self.on_thought("Detected IP address. Running nmap port scan...")
+        nmap_tool = self._tools.get("nmap")
+        if not nmap_tool:
+            return
+
+        # Select flags based on engagement type
+        flags = self._get_nmap_flags(engagement_type)
+        self.on_thought(f"Using nmap flags: {flags}")
+
+        # ── Confirmation gate — operator must approve nmap ──
+        confirmed = confirm_fn("nmap", {"target": target, "flags": flags})
+        if not confirmed:
+            self.on_thought("Operator skipped nmap. Proceeding without recon data.")
+            return
+
+        # Check stop signal after confirmation
+        if self._is_stopped():
+            return
+
+        result = self.executor.run(nmap_tool, target=target, flags=flags, save=True)
+        memory.add_tool_run("nmap", {"target": target, "flags": flags}, result)
+
+        # Parse and extract open ports
+        if result.get("success"):
+            parsed_nmap = Parser.nmap(result.get("stdout", ""))
+            ports_info = []
+            for host in parsed_nmap.get("hosts", []):
+                for port in host.get("open_ports", []):
+                    port_num = port.get("port", "?")
+                    service = port.get("service", "unknown")
+                    ports_info.append((port_num, service))
+                    memory.add_open_ports([port_num])
+
+            if ports_info:
+                memory.add_note(f"Open ports found: {ports_info}")
+                ports_summary = "\n".join([f"  - {p}: {s}" for p, s in ports_info])
+                self.on_thought(f"Found open ports:\n{ports_summary}")
+        else:
+            self.on_thought(f"Nmap scan failed or timed out. Error: {result.get('stderr', 'unknown')}")
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _is_ip(self, target: str) -> bool:
         """Check if target is an IP address."""
