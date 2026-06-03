@@ -55,6 +55,15 @@ agent_logs/
 nmap_output/
 findings_raw/
 
+# Pentesting tool output / restore files (can be very large)
+hydra.restore
+*.restore
+john.pot
+hashcat.potfile
+*.cap
+*.pcap
+*.pcapng
+
 # Configuration
 .env
 .env.local
